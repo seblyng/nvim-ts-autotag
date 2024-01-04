@@ -2,104 +2,81 @@ local group = vim.api.nvim_create_augroup("nvim-ts-autotag", { clear = true })
 
 local M = {}
 
--- stylua: ignore
-local tbl_filetypes = {
-    'html', 'javascript', 'typescript', 'javascriptreact', 'typescriptreact', 'svelte', 'vue', 'tsx', 'jsx',
-    'xml',
-    'php',
-    'markdown',
-    'astro', 'glimmer', 'handlebars', 'hbs',
-    'htmldjango',
-    'eruby'
-}
+local tbl_skip_tag =
+    { "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr" }
 
--- stylua: ignore
-local tbl_skip_tag = {
-    'area', 'base', 'br', 'col', 'command', 'embed', 'hr', 'img', 'slot',
-    'input', 'keygen', 'link', 'meta', 'param', 'source', 'track', 'wbr', 'menuitem'
-}
-
--- stylua: ignore
 local HTML_TAG = {
-    filetypes = {
-        'astro',
-        'html',
-        'htmldjango',
-        'markdown',
-        'php',
-        'xml',
-    },
-    start_tag_pattern      = { 'start_tag' },
-    start_name_tag_pattern = { 'tag_name' },
-    end_tag_pattern        = { 'end_tag' },
-    end_name_tag_pattern   = { 'tag_name' },
-    close_tag_pattern      = { 'erroneous_end_tag' },
-    close_name_tag_pattern = { 'erroneous_end_tag_name' },
-    element_tag            = { 'element' },
-    skip_tag_pattern       = { 'quoted_attribute_value', 'end_tag' },
+    start_tag_pattern = { "start_tag" },
+    start_name_tag_pattern = { "tag_name" },
+    end_tag_pattern = { "end_tag" },
+    end_name_tag_pattern = { "tag_name" },
+    close_tag_pattern = { "erroneous_end_tag" },
+    close_name_tag_pattern = { "erroneous_end_tag_name" },
+    element_tag = { "element" },
+    skip_tag_pattern = { "quoted_attribute_value", "end_tag" },
 }
--- stylua: ignore
 local JSX_TAG = {
-    filetypes              = {
-        'typescriptreact', 'javascriptreact', 'javascript.jsx',
-        'typescript.tsx', 'javascript', 'typescript', 'rescript'
+    start_tag_pattern = { "jsx_opening_element", "start_tag" },
+    start_name_tag_pattern = { "identifier", "nested_identifier", "tag_name", "member_expression", "jsx_identifier" },
+    end_tag_pattern = { "jsx_closing_element", "end_tag" },
+    end_name_tag_pattern = { "identifier", "tag_name" },
+    close_tag_pattern = { "jsx_closing_element", "nested_identifier" },
+    close_name_tag_pattern = { "member_expression", "nested_identifier", "jsx_identifier", "identifier", ">" },
+    element_tag = { "jsx_element", "element" },
+    skip_tag_pattern = {
+        "jsx_closing_element",
+        "jsx_expression",
+        "string",
+        "jsx_attribute",
+        "end_tag",
+        "string_fragment",
     },
-    start_tag_pattern      = { 'jsx_opening_element', 'start_tag' },
-    start_name_tag_pattern = { 'identifier', 'nested_identifier', 'tag_name', 'member_expression', 'jsx_identifier' },
-    end_tag_pattern        = { 'jsx_closing_element', 'end_tag' },
-    end_name_tag_pattern   = { 'identifier', 'tag_name' },
-    close_tag_pattern      = { 'jsx_closing_element', 'nested_identifier' },
-    close_name_tag_pattern = { 'member_expression', 'nested_identifier', 'jsx_identifier', 'identifier', '>' },
-    element_tag            = { 'jsx_element', 'element' },
-    skip_tag_pattern       = {
-        'jsx_closing_element', 'jsx_expression', 'string', 'jsx_attribute', 'end_tag',
-        'string_fragment'
-    },
-
 }
 
-
--- stylua: ignore
 local HBS_TAG = {
-    filetypes              = { 'glimmer', 'handlebars', 'hbs', 'htmldjango' },
-    start_tag_pattern      = { 'element_node_start' },
-    start_name_tag_pattern = { 'tag_name' },
-    end_tag_pattern        = { 'element_node_end' },
-    end_name_tag_pattern   = { 'tag_name' },
-    close_tag_pattern      = { 'element_node_end' },
-    close_name_tag_pattern = { 'tag_name' },
-    element_tag            = { 'element_node' },
-    skip_tag_pattern       = { 'element_node_end', 'attribute_node', 'concat_statement' },
+    start_tag_pattern = { "element_node_start" },
+    start_name_tag_pattern = { "tag_name" },
+    end_tag_pattern = { "element_node_end" },
+    end_name_tag_pattern = { "tag_name" },
+    close_tag_pattern = { "element_node_end" },
+    close_name_tag_pattern = { "tag_name" },
+    element_tag = { "element_node" },
+    skip_tag_pattern = { "element_node_end", "attribute_node", "concat_statement" },
 }
 
-
--- stylua: ignore
 local SVELTE_TAG = {
-    filetypes              = { 'svelte' },
-    start_tag_pattern      = { 'start_tag' },
-    start_name_tag_pattern = { 'tag_name' },
-    end_tag_pattern        = { 'end_tag' },
-    end_name_tag_pattern   = { 'tag_name' },
-    close_tag_pattern      = { 'ERROR' },
-    close_name_tag_pattern = { 'ERROR', 'erroneous_end_tag_name' },
-    element_tag            = { 'element' },
-    skip_tag_pattern       = { 'quoted_attribute_value', 'end_tag' },
+    start_tag_pattern = { "start_tag" },
+    start_name_tag_pattern = { "tag_name" },
+    end_tag_pattern = { "end_tag" },
+    end_name_tag_pattern = { "tag_name" },
+    close_tag_pattern = { "ERROR" },
+    close_name_tag_pattern = { "ERROR", "erroneous_end_tag_name" },
+    element_tag = { "element" },
+    skip_tag_pattern = { "quoted_attribute_value", "end_tag" },
 }
 
-local all_tag = {
-    HBS_TAG,
-    SVELTE_TAG,
-    JSX_TAG,
+local filetype_to_type = {
+    vue = HTML_TAG,
+    astro = HTML_TAG,
+    html = HTML_TAG,
+    htmldjango = HTML_TAG,
+    markdown = HTML_TAG,
+    php = HTML_TAG,
+    xml = HTML_TAG,
+    typescriptreact = JSX_TAG,
+    javascriptreact = JSX_TAG,
+    javascript = JSX_TAG,
+    typescript = JSX_TAG,
+    tsx = JSX_TAG,
+    glimmer = HBS_TAG,
+    handlebars = HBS_TAG,
+    hbs = HBS_TAG,
+    svelte = SVELTE_TAG,
 }
 
 local get_node_text = function(node)
     local txt = vim.treesitter.get_node_text(node, vim.api.nvim_get_current_buf())
     return vim.split(txt, "\n") or {}
-end
-
-local verify_node = function(node, node_tag)
-    local txt = vim.treesitter.get_node_text(node, vim.api.nvim_get_current_buf())
-    return txt:match(string.format("^<%s>", node_tag)) and txt:match(string.format("</%s>$", node_tag))
 end
 
 local function is_in_table(tbl, val)
@@ -109,50 +86,20 @@ local function is_in_table(tbl, val)
     return item ~= nil
 end
 
-local buffer_tag = {}
-
-local setup_ts_tag = function()
-    local bufnr = vim.api.nvim_get_current_buf()
-    for _, value in pairs(all_tag) do
-        if is_in_table(value.filetypes, vim.bo.filetype) then
-            buffer_tag[bufnr] = value
-            return value
+local function get_lang(parser, range)
+    for lang, child in pairs(parser:children()) do
+        if lang ~= "comment" and child:contains(range) then
+            return get_lang(child, range)
         end
     end
-    buffer_tag[bufnr] = HTML_TAG
+    return parser:lang()
 end
 
--- TODO: Does not work yet here nor on master. It looks like it stops when
--- injected range is over
-local function is_in_template_tag()
-    local cursor_node = vim.treesitter.get_node({ ignore_injections = false })
-    if not cursor_node then
-        return false
-    end
-
-    local has_element = false
-    local has_template_string = false
-
-    local current_node = cursor_node
-    while not (has_element and has_template_string) and current_node do
-        if not has_element and current_node:type() == "element" then
-            has_element = true
-        end
-        if not has_template_string and current_node:type() == "template_string" then
-            has_template_string = true
-        end
-        current_node = current_node:parent()
-    end
-
-    return has_element and has_template_string
-end
-
-local function get_ts_tag()
-    if is_in_template_tag() then
-        return HTML_TAG
-    else
-        return buffer_tag[vim.api.nvim_get_current_buf()]
-    end
+local function get_ts_tag(parser)
+    local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+    local range = { row - 1, col, row - 1, col }
+    local lang = get_lang(parser, range)
+    return filetype_to_type[lang] or filetype_to_type[vim.bo.filetype]
 end
 
 local function find_child_match(opts)
@@ -229,8 +176,8 @@ local function find_tag_node(opts)
     return is_in_table(opts.name_tag_pattern, node:type()) and node or nil
 end
 
-local function check_close_tag()
-    local ts_tag = get_ts_tag()
+local function check_close_tag(parser)
+    local ts_tag = get_ts_tag(parser)
     local tag_node = find_tag_node({
         target = vim.treesitter.get_node({ ignore_injections = false }),
         tag_pattern = ts_tag.start_tag_pattern,
@@ -264,12 +211,9 @@ local function check_close_tag()
 end
 
 local function replace_text_node(node, tag_name)
-    if node == nil then
-        return
-    end
     local start_row, start_col, end_row, end_col = node:range()
     if start_row == end_row then
-        local line = vim.fn.getline(start_row + 1)
+        local line = vim.fn.getline(start_row + 1) --[[@as string]]
         local newline = line:sub(0, start_col) .. tag_name .. line:sub(end_col + 1, string.len(line))
         vim.api.nvim_buf_set_lines(0, start_row, start_row + 1, true, { newline })
     end
@@ -291,8 +235,8 @@ local function validate_close_tag(node)
     return validate_tag_regex(node, "^%<%/%w", "%>$")
 end
 
-local function rename_start_tag()
-    local ts_tag = get_ts_tag()
+local function rename_start_tag(parser)
+    local ts_tag = get_ts_tag(parser)
     local tag_node = find_tag_node({
         target = vim.treesitter.get_node({ ignore_injections = false }),
         tag_pattern = ts_tag.start_tag_pattern,
@@ -322,8 +266,8 @@ local function rename_start_tag()
     end
 end
 
-local function rename_end_tag()
-    local ts_tag = get_ts_tag()
+local function rename_end_tag(parser)
+    local ts_tag = get_ts_tag(parser)
     local tag_node = find_tag_node({
         target = vim.treesitter.get_node({ ignore_injections = false }),
         tag_pattern = ts_tag.close_tag_pattern,
@@ -371,55 +315,39 @@ local rename_tag = function()
         return
     end
     parser:parse(true)
-    rename_start_tag()
-    rename_end_tag()
+    rename_start_tag(parser)
+    rename_end_tag(parser)
 end
 
-local attach = function()
-    if is_in_table(tbl_filetypes, vim.bo.filetype) then
-        setup_ts_tag()
-
-        vim.keymap.set("i", ">", function()
-            local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-            vim.api.nvim_buf_set_text(0, row - 1, col, row - 1, col, { ">" })
-
-            local ok, parser = pcall(vim.treesitter.get_parser)
-            if not ok then
-                return
-            end
-            parser:parse(true)
-            local tag_name = check_close_tag()
-            if tag_name ~= nil then
-                vim.api.nvim_put({ string.format("</%s>", tag_name) }, "", true, false)
-                vim.cmd([[normal! F>]])
-            end
-
-            vim.api.nvim_win_set_cursor(0, { row, col + 1 })
-        end, {
-            buffer = 0,
-        })
-
-        vim.api.nvim_create_autocmd({ "InsertLeave" }, {
-            group = group,
-            buffer = 0,
-            callback = rename_tag,
-        })
-    end
-end
-
-function M.setup(opts)
-    opts = opts or {}
-
+function M.setup()
     vim.api.nvim_create_autocmd("FileType", {
-        pattern = "*",
+        pattern = vim.tbl_keys(filetype_to_type),
         callback = function()
-            attach()
-        end,
-    })
-    vim.api.nvim_create_autocmd("BufDelete", {
-        pattern = "*",
-        callback = function()
-            buffer_tag[vim.api.nvim_get_current_buf()] = nil
+            vim.keymap.set("i", ">", function()
+                local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+                vim.api.nvim_buf_set_text(0, row - 1, col, row - 1, col, { ">" })
+
+                local ok, parser = pcall(vim.treesitter.get_parser)
+                if not ok then
+                    return
+                end
+                parser:parse(true)
+                local tag_name = check_close_tag(parser)
+                if tag_name ~= nil then
+                    vim.api.nvim_put({ string.format("</%s>", tag_name) }, "", true, false)
+                    vim.cmd([[normal! F>]])
+                end
+
+                vim.api.nvim_win_set_cursor(0, { row, col + 1 })
+            end, {
+                buffer = 0,
+            })
+
+            vim.api.nvim_create_autocmd({ "InsertLeave" }, {
+                group = group,
+                buffer = 0,
+                callback = rename_tag,
+            })
         end,
     })
 end
