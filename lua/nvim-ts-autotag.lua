@@ -1,5 +1,3 @@
-local group = vim.api.nvim_create_augroup("nvim-ts-autotag", { clear = true })
-
 local M = {}
 
 local tbl_skip_tag =
@@ -65,8 +63,6 @@ local filetype_to_type = {
     xml = HTML_TAG,
     typescriptreact = JSX_TAG,
     javascriptreact = JSX_TAG,
-    javascript = JSX_TAG,
-    typescript = JSX_TAG,
     tsx = JSX_TAG,
     glimmer = HBS_TAG,
     handlebars = HBS_TAG,
@@ -77,13 +73,6 @@ local filetype_to_type = {
 local get_node_text = function(node)
     local txt = vim.treesitter.get_node_text(node, vim.api.nvim_get_current_buf())
     return vim.split(txt, "\n") or {}
-end
-
-local function is_in_table(tbl, val)
-    local item = vim.iter(tbl or {}):find(function(value)
-        return val == value
-    end)
-    return item ~= nil
 end
 
 local function get_lang(parser, range)
@@ -109,7 +98,7 @@ local function find_child_match(opts)
     for _, ptn in pairs(opts.tag_pattern) do
         for node in opts.target:iter_children() do
             local node_type = node:type()
-            if node_type == ptn and not is_in_table(opts.skip_tag_pattern, node_type) then
+            if node_type == ptn and not vim.tbl_contains(opts.skip_tag_pattern or {}, node_type) then
                 return node
             end
         end
@@ -126,7 +115,7 @@ local function find_parent_match(opts)
         local cur_depth = 0
         while cur_node ~= nil do
             local node_type = cur_node:type()
-            if is_in_table(opts.skip_tag_pattern, node_type) then
+            if vim.tbl_contains(opts.skip_tag_pattern or {}, node_type) then
                 return nil
             end
             if node_type ~= nil and node_type == ptn then
@@ -173,7 +162,7 @@ local function find_tag_node(opts)
     end
 
     -- check current node is have same name of tag_match
-    return is_in_table(opts.name_tag_pattern, node:type()) and node or nil
+    return vim.tbl_contains(opts.name_tag_pattern, node:type()) and node or nil
 end
 
 local function check_close_tag(parser)
@@ -194,7 +183,7 @@ local function check_close_tag(parser)
     })
 
     local tag_name = get_tag_name(tag_node)
-    if tag_node == nil or tag_name == nil or is_in_table(tbl_skip_tag, tag_name) then
+    if tag_node == nil or tag_name == nil or vim.tbl_contains(tbl_skip_tag, tag_name) then
         return nil
     end
 
@@ -344,7 +333,7 @@ function M.setup()
             })
 
             vim.api.nvim_create_autocmd({ "InsertLeave" }, {
-                group = group,
+                group = vim.api.nvim_create_augroup("nvim-ts-autotag", { clear = true }),
                 buffer = 0,
                 callback = rename_tag,
             })
