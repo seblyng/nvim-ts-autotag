@@ -78,6 +78,12 @@ local get_node_text = function(node)
     return vim.split(txt, "\n") or {}
 end
 
+-- Verifies that the starting and closing tag both is of name `node_tag`
+local verify_node = function(node, node_tag)
+    local txt = vim.treesitter.get_node_text(node, vim.api.nvim_get_current_buf())
+    return txt:match(string.format("^<%s>", node_tag)) and txt:match(string.format("</%s>$", node_tag))
+end
+
 local function get_lang(parser, range)
     for lang, child in pairs(parser:children()) do
         if lang ~= "comment" and child:contains(range) then
@@ -147,12 +153,6 @@ local function get_tag_name(node)
 end
 
 local function find_matching_tag(opts)
-    opts.target = find_parent_match({
-        target = opts.tag_node,
-        tag_pattern = opts.element_tag,
-        max_depth = 2,
-    })
-
     local node = find_child_match(opts)
     if node == nil then
         return nil
@@ -199,11 +199,15 @@ local function check_close_tag(parser)
         return nil
     end
 
+    local element_node = find_parent_match({
+        target = tag_node,
+        tag_pattern = ts_tag.element_tag,
+        max_depth = 2,
+    })
     -- case 6,9 check close on exist node
     local close_tag_node = find_matching_tag({
+        target = element_node,
         find_child = true,
-        tag_node = tag_node,
-        element_tag = ts_tag.element_tag,
         tag_pattern = ts_tag.end_tag_pattern,
         name_tag_pattern = ts_tag.end_name_tag_pattern,
     })
@@ -261,15 +265,28 @@ local function rename_start_tag(parser)
         return
     end
 
+    local element_node = find_parent_match({
+        target = tag_node,
+        tag_pattern = ts_tag.element_tag,
+        max_depth = 2,
+    })
+
     local close_tag_node = find_matching_tag({
+        target = element_node,
         find_child = true,
-        tag_node = tag_node,
-        element_tag = ts_tag.element_tag,
         tag_pattern = ts_tag.close_tag_pattern,
         name_tag_pattern = ts_tag.close_name_tag_pattern,
     })
 
     local close_tag_name = get_tag_name(close_tag_node)
+    if
+        element_node == nil
+        or close_tag_name == get_tag_name(element_node:parent())
+            and not verify_node(element_node:parent(), close_tag_name)
+    then
+        return nil
+    end
+
     local tag_name = get_tag_name(tag_node)
     if close_tag_name and tag_name ~= close_tag_name then
         if close_tag_name == ">" then
@@ -295,10 +312,14 @@ local function rename_end_tag(parser)
         return
     end
 
+    local element_node = find_parent_match({
+        target = tag_node,
+        tag_pattern = ts_tag.element_tag,
+        max_depth = 2,
+    })
     local start_tag_node = find_matching_tag({
+        target = element_node,
         find_child = true,
-        element_tag = ts_tag.element_tag,
-        tag_node = tag_node,
         tag_pattern = ts_tag.start_tag_pattern,
         name_tag_pattern = ts_tag.start_name_tag_pattern,
     })
