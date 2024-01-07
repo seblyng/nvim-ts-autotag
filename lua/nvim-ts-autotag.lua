@@ -322,19 +322,6 @@ local function validate_rename()
     return string.match(char, "%w") or string.match(prev_char, "%w")
 end
 
-local rename_tag = function()
-    if not validate_rename() then
-        return
-    end
-    local ok, parser = pcall(vim.treesitter.get_parser)
-    if not ok then
-        return
-    end
-    parser:parse(true)
-    rename_start_tag(parser)
-    rename_end_tag(parser)
-end
-
 function M.setup()
     vim.api.nvim_create_autocmd("FileType", {
         pattern = vim.tbl_keys(filetype_to_type),
@@ -351,7 +338,6 @@ function M.setup()
                 local tag_name = check_close_tag(parser)
                 if tag_name ~= nil then
                     vim.api.nvim_put({ string.format("</%s>", tag_name) }, "", true, false)
-                    vim.cmd([[normal! F>]])
                 end
 
                 vim.api.nvim_win_set_cursor(0, { row, col + 1 })
@@ -362,7 +348,18 @@ function M.setup()
             vim.api.nvim_create_autocmd({ "InsertLeave" }, {
                 group = vim.api.nvim_create_augroup("nvim-ts-autotag", { clear = true }),
                 buffer = 0,
-                callback = rename_tag,
+                callback = function()
+                    if not validate_rename() then
+                        return
+                    end
+                    local ok, parser = pcall(vim.treesitter.get_parser)
+                    if not ok then
+                        return
+                    end
+                    parser:parse(true)
+                    rename_start_tag(parser)
+                    rename_end_tag(parser)
+                end,
             })
         end,
     })
