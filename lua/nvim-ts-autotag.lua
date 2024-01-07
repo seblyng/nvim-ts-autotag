@@ -68,6 +68,9 @@ local filetype_to_type = {
     handlebars = HBS_TAG,
     hbs = HBS_TAG,
     svelte = SVELTE_TAG,
+    javascript = {},
+    typescript = {},
+    eruby = {},
 }
 
 local get_node_text = function(node)
@@ -88,7 +91,8 @@ local function get_ts_tag(parser)
     local row, col = unpack(vim.api.nvim_win_get_cursor(0))
     local range = { row - 1, col, row - 1, col }
     local lang = get_lang(parser, range)
-    return filetype_to_type[lang] or filetype_to_type[vim.bo.filetype]
+    local ts_tag = filetype_to_type[lang] or filetype_to_type[vim.bo.filetype]
+    return not vim.tbl_isempty(ts_tag) and ts_tag or nil
 end
 
 local function find_child_match(opts)
@@ -142,16 +146,29 @@ local function get_tag_name(node)
     return tag_name
 end
 
-local function find_tag_node(opts)
-    if not opts.target then
-        opts.target = find_parent_match({
-            target = opts.tag_node,
-            tag_pattern = opts.element_tag,
-            max_depth = 2,
-        })
+local function find_matching_tag(opts)
+    opts.target = find_parent_match({
+        target = opts.tag_node,
+        tag_pattern = opts.element_tag,
+        max_depth = 2,
+    })
+
+    local node = find_child_match(opts)
+    if node == nil then
+        return nil
     end
 
-    local node = opts.find_child and find_child_match(opts) or find_parent_match(opts)
+    local name_node = find_child_match({ target = node, tag_pattern = opts.name_tag_pattern })
+    if name_node then
+        return name_node
+    end
+
+    -- check current node is have same name of tag_match
+    return vim.tbl_contains(opts.name_tag_pattern, node:type()) and node or nil
+end
+
+local function find_tag_node(opts)
+    local node = find_parent_match(opts)
     if node == nil then
         return nil
     end
@@ -167,25 +184,29 @@ end
 
 local function check_close_tag(parser)
     local ts_tag = get_ts_tag(parser)
+    if ts_tag == nil then
+        return
+    end
     local tag_node = find_tag_node({
         target = vim.treesitter.get_node({ ignore_injections = false }),
         tag_pattern = ts_tag.start_tag_pattern,
         name_tag_pattern = ts_tag.start_name_tag_pattern,
         skip_tag_pattern = ts_tag.skip_tag_pattern,
     })
+
+    local tag_name = get_tag_name(tag_node)
+    if tag_node == nil or tag_name == nil or vim.tbl_contains(tbl_skip_tag, tag_name) then
+        return nil
+    end
+
     -- case 6,9 check close on exist node
-    local close_tag_node = find_tag_node({
+    local close_tag_node = find_matching_tag({
         find_child = true,
         tag_node = tag_node,
         element_tag = ts_tag.element_tag,
         tag_pattern = ts_tag.end_tag_pattern,
         name_tag_pattern = ts_tag.end_name_tag_pattern,
     })
-
-    local tag_name = get_tag_name(tag_node)
-    if tag_node == nil or tag_name == nil or vim.tbl_contains(tbl_skip_tag, tag_name) then
-        return nil
-    end
 
     -- If we already have a close tag
     if
@@ -226,6 +247,9 @@ end
 
 local function rename_start_tag(parser)
     local ts_tag = get_ts_tag(parser)
+    if ts_tag == nil then
+        return
+    end
     local tag_node = find_tag_node({
         target = vim.treesitter.get_node({ ignore_injections = false }),
         tag_pattern = ts_tag.start_tag_pattern,
@@ -237,7 +261,7 @@ local function rename_start_tag(parser)
         return
     end
 
-    local close_tag_node = find_tag_node({
+    local close_tag_node = find_matching_tag({
         find_child = true,
         tag_node = tag_node,
         element_tag = ts_tag.element_tag,
@@ -257,6 +281,9 @@ end
 
 local function rename_end_tag(parser)
     local ts_tag = get_ts_tag(parser)
+    if ts_tag == nil then
+        return
+    end
     local tag_node = find_tag_node({
         target = vim.treesitter.get_node({ ignore_injections = false }),
         tag_pattern = ts_tag.close_tag_pattern,
@@ -268,7 +295,7 @@ local function rename_end_tag(parser)
         return
     end
 
-    local start_tag_node = find_tag_node({
+    local start_tag_node = find_matching_tag({
         find_child = true,
         element_tag = ts_tag.element_tag,
         tag_node = tag_node,
