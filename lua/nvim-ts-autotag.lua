@@ -13,6 +13,7 @@ local HTML_TAG = {
     element_tag = { "element" },
     skip_tag_pattern = { "quoted_attribute_value", "end_tag" },
 }
+
 local JSX_TAG = {
     start_tag_pattern = { "jsx_opening_element", "start_tag" },
     start_name_tag_pattern = { "identifier", "nested_identifier", "tag_name", "member_expression", "jsx_identifier" },
@@ -53,6 +54,17 @@ local SVELTE_TAG = {
     skip_tag_pattern = { "quoted_attribute_value", "end_tag" },
 }
 
+local RSTML_TAG = {
+    start_tag_pattern = { "open_tag" },
+    start_name_tag_pattern = { "node_identifier" },
+    end_tag_pattern = { "close_tag" },
+    end_name_tag_pattern = { "node_identifier" },
+    close_tag_pattern = { "close_tag" },
+    close_name_tag_pattern = { "close_tag", "node_identifier" },
+    element_tag = { "element_node" },
+    skip_tag_pattern = { "close_tag", "node_attribute", "block" },
+}
+
 local filetype_to_type = {
     vue = HTML_TAG,
     astro = HTML_TAG,
@@ -68,6 +80,7 @@ local filetype_to_type = {
     handlebars = HBS_TAG,
     hbs = HBS_TAG,
     svelte = SVELTE_TAG,
+    rust = RSTML_TAG,
     javascript = {},
     typescript = {},
     eruby = {},
