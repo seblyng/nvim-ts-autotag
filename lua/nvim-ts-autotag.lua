@@ -1,26 +1,32 @@
 local M = {}
 
+---@class NvimTsAutotagTag
+---@field start_tag_pattern string[]?
+---@field start_name_tag_pattern string[]?
+---@field end_tag_pattern string[]?
+---@field end_name_tag_pattern string[]?
+---@field element_tag string[]?
+---@field skip_tag_pattern string[]?
+
 local tbl_skip_tag =
     { "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr" }
 
+---@type NvimTsAutotagTag
 local HTML_TAG = {
     start_tag_pattern = { "start_tag" },
     start_name_tag_pattern = { "tag_name" },
     end_tag_pattern = { "end_tag" },
     end_name_tag_pattern = { "tag_name" },
-    close_tag_pattern = { "erroneous_end_tag" },
-    close_name_tag_pattern = { "erroneous_end_tag_name" },
     element_tag = { "element" },
     skip_tag_pattern = { "quoted_attribute_value", "end_tag" },
 }
 
+---@type NvimTsAutotagTag
 local JSX_TAG = {
     start_tag_pattern = { "jsx_opening_element", "start_tag" },
     start_name_tag_pattern = { "identifier", "nested_identifier", "tag_name", "member_expression", "jsx_identifier" },
     end_tag_pattern = { "jsx_closing_element", "end_tag" },
     end_name_tag_pattern = { "identifier", "tag_name" },
-    close_tag_pattern = { "jsx_closing_element", "nested_identifier" },
-    close_name_tag_pattern = { "member_expression", "nested_identifier", "jsx_identifier", "identifier", ">" },
     element_tag = { "jsx_element", "element" },
     skip_tag_pattern = {
         "jsx_closing_element",
@@ -32,39 +38,37 @@ local JSX_TAG = {
     },
 }
 
+---@type NvimTsAutotagTag
 local HBS_TAG = {
     start_tag_pattern = { "element_node_start" },
     start_name_tag_pattern = { "tag_name" },
     end_tag_pattern = { "element_node_end" },
     end_name_tag_pattern = { "tag_name" },
-    close_tag_pattern = { "element_node_end" },
-    close_name_tag_pattern = { "tag_name" },
     element_tag = { "element_node" },
     skip_tag_pattern = { "element_node_end", "attribute_node", "concat_statement" },
 }
 
+---@type NvimTsAutotagTag
 local SVELTE_TAG = {
     start_tag_pattern = { "start_tag" },
     start_name_tag_pattern = { "tag_name" },
     end_tag_pattern = { "end_tag" },
     end_name_tag_pattern = { "tag_name" },
-    close_tag_pattern = { "ERROR" },
-    close_name_tag_pattern = { "ERROR", "erroneous_end_tag_name" },
     element_tag = { "element" },
     skip_tag_pattern = { "quoted_attribute_value", "end_tag" },
 }
 
+---@type NvimTsAutotagTag
 local RSTML_TAG = {
     start_tag_pattern = { "open_tag" },
     start_name_tag_pattern = { "node_identifier" },
     end_tag_pattern = { "close_tag" },
     end_name_tag_pattern = { "node_identifier" },
-    close_tag_pattern = { "close_tag" },
-    close_name_tag_pattern = { "close_tag", "node_identifier" },
     element_tag = { "element_node" },
     skip_tag_pattern = { "close_tag", "node_attribute", "block" },
 }
 
+---@type table<string, NvimTsAutotagTag>
 local filetype_to_type = {
     vue = HTML_TAG,
     astro = HTML_TAG,
@@ -86,17 +90,9 @@ local filetype_to_type = {
     eruby = {},
 }
 
-local get_node_text = function(node)
-    local txt = vim.treesitter.get_node_text(node, vim.api.nvim_get_current_buf())
-    return vim.split(txt, "\n") or {}
-end
-
--- Verifies that the starting and closing tag both is of name `node_tag`
-local verify_node = function(node, node_tag)
-    local txt = vim.treesitter.get_node_text(node, vim.api.nvim_get_current_buf())
-    return txt:match(string.format("^<%s>", node_tag)) and txt:match(string.format("</%s>$", node_tag))
-end
-
+---@param parser vim.treesitter.LanguageTree
+---@param range [integer, integer, integer, integer]
+---@return string
 local function get_lang(parser, range)
     for lang, child in pairs(parser:children()) do
         if lang ~= "comment" and child:contains(range) then
@@ -106,6 +102,8 @@ local function get_lang(parser, range)
     return parser:lang()
 end
 
+---@param parser vim.treesitter.LanguageTree
+---@return NvimTsAutotagTag|nil
 local function get_ts_tag(parser)
     local row, col = unpack(vim.api.nvim_win_get_cursor(0))
     local range = { row - 1, col, row - 1, col }
@@ -114,31 +112,40 @@ local function get_ts_tag(parser)
     return not vim.tbl_isempty(ts_tag) and ts_tag or nil
 end
 
-local function find_child_match(opts)
-    if opts.target == nil then
+---@param target TSNode?
+---@param tag_pattern string[]
+---@param skip_tag_pattern string[]?
+---@return TSNode?
+local function find_child_match(target, tag_pattern, skip_tag_pattern)
+    if target == nil then
         return nil
     end
-    for _, ptn in pairs(opts.tag_pattern) do
-        for node in opts.target:iter_children() do
+    for _, ptn in pairs(tag_pattern) do
+        for node in target:iter_children() do
             local node_type = node:type()
-            if node_type == ptn and not vim.tbl_contains(opts.skip_tag_pattern or {}, node_type) then
+            if node_type == ptn and not vim.tbl_contains(skip_tag_pattern or {}, node_type) then
                 return node
             end
         end
     end
 end
 
-local function find_parent_match(opts)
-    local max_depth = opts.max_depth or 10
-    if opts.target == nil then
+---@param target TSNode?
+---@param tag_pattern string[]
+---@param skip_tag_pattern string[]?
+---@param max_depth integer?
+---@return TSNode?
+local function find_parent_match(target, tag_pattern, skip_tag_pattern, max_depth)
+    max_depth = max_depth or 10
+    if target == nil then
         return nil
     end
-    for _, ptn in pairs(opts.tag_pattern) do
-        local cur_node = opts.target
+    for _, ptn in pairs(tag_pattern) do
+        local cur_node = target --[[@as TSNode?]]
         local cur_depth = 0
         while cur_node ~= nil do
             local node_type = cur_node:type()
-            if vim.tbl_contains(opts.skip_tag_pattern or {}, node_type) then
+            if vim.tbl_contains(skip_tag_pattern or {}, node_type) then
                 return nil
             end
             if node_type ~= nil and node_type == ptn then
@@ -154,206 +161,72 @@ local function find_parent_match(opts)
     return nil
 end
 
+---@param node TSNode?
+---@return string?
 local function get_tag_name(node)
-    local tag_name = nil
-    if node ~= nil then
-        tag_name = get_node_text(node)[1]
-        if tag_name and #tag_name > 3 then
-            tag_name = tag_name:gsub("</", ""):gsub(">", ""):gsub("<", "")
-        end
+    if node == nil then
+        return nil
+    end
+
+    local txt = vim.treesitter.get_node_text(node, vim.api.nvim_get_current_buf())
+    local tag_name = vim.split(txt, "\n")[1]
+
+    if tag_name and #tag_name > 3 then
+        tag_name = tag_name:gsub("</", ""):gsub(">", ""):gsub("<", "")
     end
     return tag_name
 end
 
-local function find_matching_tag(opts)
-    local node = find_child_match(opts)
-    if node == nil then
+---@param target TSNode?
+---@param name_tag_pattern string[]
+---@return TSNode?
+local function find_tag_node(target, name_tag_pattern)
+    if not target then
         return nil
     end
 
-    local name_node = find_child_match({ target = node, tag_pattern = opts.name_tag_pattern })
+    local name_node = find_child_match(target, name_tag_pattern)
     if name_node then
         return name_node
     end
 
     -- check current node is have same name of tag_match
-    return vim.tbl_contains(opts.name_tag_pattern, node:type()) and node or nil
+    return vim.tbl_contains(name_tag_pattern, target:type()) and target or nil
 end
 
-local function find_tag_node(opts)
-    local node = find_parent_match(opts)
-    if node == nil then
-        return nil
-    end
-
-    local name_node = find_child_match({ target = node, tag_pattern = opts.name_tag_pattern })
-    if name_node then
-        return name_node
-    end
-
-    -- check current node is have same name of tag_match
-    return vim.tbl_contains(opts.name_tag_pattern, node:type()) and node or nil
-end
-
+---@param parser vim.treesitter.LanguageTree
+---@return string?
 local function check_close_tag(parser)
     local ts_tag = get_ts_tag(parser)
     if ts_tag == nil then
-        return
-    end
-    local tag_node = find_tag_node({
-        target = vim.treesitter.get_node({ ignore_injections = false }),
-        tag_pattern = ts_tag.start_tag_pattern,
-        name_tag_pattern = ts_tag.start_name_tag_pattern,
-        skip_tag_pattern = ts_tag.skip_tag_pattern,
-    })
-
-    local tag_name = get_tag_name(tag_node)
-    if tag_node == nil or tag_name == nil or vim.tbl_contains(tbl_skip_tag, tag_name) then
         return nil
     end
 
-    local element_node = find_parent_match({
-        target = tag_node,
-        tag_pattern = ts_tag.element_tag,
-        max_depth = 2,
-    })
-    -- case 6,9 check close on exist node
-    local close_tag_node = find_matching_tag({
-        target = element_node,
-        find_child = true,
-        tag_pattern = ts_tag.end_tag_pattern,
-        name_tag_pattern = ts_tag.end_name_tag_pattern,
-    })
+    local curr_node = vim.treesitter.get_node({ ignore_injections = false })
+    local start_node = find_parent_match(curr_node, ts_tag.start_tag_pattern, ts_tag.skip_tag_pattern)
 
-    -- If we already have a close tag
-    if
-        close_tag_node ~= nil
-        and tag_node:range() == close_tag_node:range()
-        and tag_name == get_tag_name(close_tag_node)
-    then
+    local start_tag_node = find_tag_node(start_node, ts_tag.start_name_tag_pattern)
+    local start_tag_name = get_tag_name(start_tag_node)
+
+    if not start_tag_node or not start_tag_name or vim.tbl_contains(tbl_skip_tag, start_tag_name) then
         return nil
     end
 
-    return tag_name
-end
+    local element_node = find_parent_match(start_tag_node, ts_tag.element_tag, nil, 2)
+    local close_node = find_child_match(element_node, ts_tag.end_tag_pattern, ts_tag.end_name_tag_pattern)
+    local close_tag_node = find_tag_node(close_node, ts_tag.end_name_tag_pattern)
 
-local function replace_text_node(node, tag_name)
-    local start_row, start_col, end_row, end_col = node:range()
-    if start_row == end_row then
-        local line = vim.fn.getline(start_row + 1) --[[@as string]]
-        local newline = line:sub(0, start_col) .. tag_name .. line:sub(end_col + 1, string.len(line))
-        vim.api.nvim_buf_set_lines(0, start_row, start_row + 1, true, { newline })
-    end
-end
-
-local function validate_tag_regex(node, start_regex, end_regex)
-    if node == nil then
-        return false
-    end
-    local texts = get_node_text(node)
-    return string.match(texts[1], start_regex) and string.match(texts[#texts], end_regex)
-end
-
-local function validate_start_tag(node)
-    return validate_tag_regex(node, "^%<%w", "%>$")
-end
-
-local function validate_close_tag(node)
-    return validate_tag_regex(node, "^%<%/%w", "%>$")
-end
-
-local function rename_start_tag(parser)
-    local ts_tag = get_ts_tag(parser)
-    if ts_tag == nil then
-        return
-    end
-    local tag_node = find_tag_node({
-        target = vim.treesitter.get_node({ ignore_injections = false }),
-        tag_pattern = ts_tag.start_tag_pattern,
-        name_tag_pattern = ts_tag.start_name_tag_pattern,
-        skip_tag_pattern = ts_tag.skip_tag_pattern,
-    })
-
-    if tag_node == nil or not validate_start_tag(tag_node:parent()) then
-        return
+    -- We don't have a close node, so autofill it
+    if close_tag_node == nil then
+        return start_tag_name
     end
 
-    local element_node = find_parent_match({
-        target = tag_node,
-        tag_pattern = ts_tag.element_tag,
-        max_depth = 2,
-    })
-
-    local close_tag_node = find_matching_tag({
-        target = element_node,
-        find_child = true,
-        tag_pattern = ts_tag.close_tag_pattern,
-        name_tag_pattern = ts_tag.close_name_tag_pattern,
-    })
-
-    local close_tag_name = get_tag_name(close_tag_node)
-    if
-        element_node == nil
-        or close_tag_name == get_tag_name(element_node:parent())
-            and not verify_node(element_node:parent(), close_tag_name)
-    then
+    -- We already have the same closing tag, so ignore
+    if start_tag_node:range() == close_tag_node:range() and start_tag_name == get_tag_name(close_tag_node) then
         return nil
     end
 
-    local tag_name = get_tag_name(tag_node)
-    if close_tag_name and tag_name ~= close_tag_name then
-        if close_tag_name == ">" then
-            tag_name = tag_name .. ">"
-        end
-        replace_text_node(close_tag_node, tag_name)
-    end
-end
-
-local function rename_end_tag(parser)
-    local ts_tag = get_ts_tag(parser)
-    if ts_tag == nil then
-        return
-    end
-    local tag_node = find_tag_node({
-        target = vim.treesitter.get_node({ ignore_injections = false }),
-        tag_pattern = ts_tag.close_tag_pattern,
-        name_tag_pattern = ts_tag.close_name_tag_pattern,
-    })
-
-    -- we check if that node text match </>
-    if tag_node == nil or not (validate_close_tag(tag_node:parent()) or validate_close_tag(tag_node)) then
-        return
-    end
-
-    local element_node = find_parent_match({
-        target = tag_node,
-        tag_pattern = ts_tag.element_tag,
-        max_depth = 2,
-    })
-    local start_tag_node = find_matching_tag({
-        target = element_node,
-        find_child = true,
-        tag_pattern = ts_tag.start_tag_pattern,
-        name_tag_pattern = ts_tag.start_name_tag_pattern,
-    })
-
-    if start_tag_node == nil or not validate_start_tag(start_tag_node:parent()) then
-        return
-    end
-
-    local tag_name = get_tag_name(tag_node)
-    if tag_name ~= get_tag_name(start_tag_node) then
-        replace_text_node(start_tag_node, tag_name)
-    end
-end
-
-local function validate_rename()
-    local cursor = vim.api.nvim_win_get_cursor(0)
-    local line = vim.api.nvim_get_current_line()
-    local char = line:sub(cursor[2] + 1, cursor[2] + 1)
-    local prev_char = line:sub(cursor[2], cursor[2])
-    -- only rename when last character is a word or end of tag
-    return string.match(char, "%w") or string.match(prev_char, "%w")
+    return start_tag_name
 end
 
 function M.setup()
@@ -365,7 +238,7 @@ function M.setup()
                 vim.api.nvim_buf_set_text(0, row - 1, col, row - 1, col, { ">" })
 
                 local ok, parser = pcall(vim.treesitter.get_parser)
-                if not ok then
+                if not ok or not parser then
                     return
                 end
                 parser:parse(true)
@@ -377,23 +250,6 @@ function M.setup()
                 vim.api.nvim_win_set_cursor(0, { row, col + 1 })
             end, {
                 buffer = 0,
-            })
-
-            vim.api.nvim_create_autocmd({ "InsertLeave" }, {
-                group = vim.api.nvim_create_augroup("nvim-ts-autotag", { clear = true }),
-                buffer = 0,
-                callback = function()
-                    if not validate_rename() then
-                        return
-                    end
-                    local ok, parser = pcall(vim.treesitter.get_parser)
-                    if not ok then
-                        return
-                    end
-                    parser:parse(true)
-                    rename_start_tag(parser)
-                    rename_end_tag(parser)
-                end,
             })
         end,
     })
