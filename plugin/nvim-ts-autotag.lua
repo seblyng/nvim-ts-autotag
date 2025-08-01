@@ -1,5 +1,3 @@
-local M = {}
-
 ---@class NvimTsAutotagTag
 ---@field start_tag string[]?
 ---@field start_name_tag string[]?
@@ -163,34 +161,30 @@ local function try_insert_close_tag(bufnr, ts_tag)
     vim.api.nvim_put({ string.format("</%s>", start_tag_name) }, "", true, false)
 end
 
-function M.setup()
-    vim.api.nvim_create_autocmd("FileType", {
-        pattern = vim.tbl_keys(filetype_to_type),
-        callback = function(args)
-            vim.keymap.set("i", ">", function()
-                local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-                vim.api.nvim_buf_set_text(args.buf, row - 1, col, row - 1, col, { ">" })
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = vim.tbl_keys(filetype_to_type),
+    callback = function(args)
+        vim.keymap.set("i", ">", function()
+            local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+            vim.api.nvim_buf_set_text(args.buf, row - 1, col, row - 1, col, { ">" })
 
-                local ok, parser = pcall(vim.treesitter.get_parser)
-                if not ok or not parser then
-                    return
-                end
-                parser:parse(true)
+            local ok, parser = pcall(vim.treesitter.get_parser)
+            if not ok or not parser then
+                return
+            end
+            parser:parse(true)
 
-                local lang = get_lang(parser, { row - 1, col, row - 1, col })
-                local ts_tag = filetype_to_type[lang] or filetype_to_type[vim.bo.filetype]
-                if not ts_tag or vim.tbl_isempty(ts_tag) then
-                    return
-                end
+            local lang = get_lang(parser, { row - 1, col, row - 1, col })
+            local ts_tag = filetype_to_type[lang] or filetype_to_type[vim.bo.filetype]
+            if not ts_tag or vim.tbl_isempty(ts_tag) then
+                return
+            end
 
-                try_insert_close_tag(args.buf, ts_tag)
+            try_insert_close_tag(args.buf, ts_tag)
 
-                vim.api.nvim_win_set_cursor(0, { row, col + 1 })
-            end, {
-                buffer = 0,
-            })
-        end,
-    })
-end
-
-return M
+            vim.api.nvim_win_set_cursor(0, { row, col + 1 })
+        end, {
+            buffer = 0,
+        })
+    end,
+})
