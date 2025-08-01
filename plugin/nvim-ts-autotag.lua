@@ -170,14 +170,14 @@ vim.api.nvim_create_autocmd("FileType", {
 
             local ok, parser = pcall(vim.treesitter.get_parser)
             if not ok or not parser then
-                return
+                return vim.api.nvim_win_set_cursor(0, { row, col + 1 })
             end
             parser:parse(true)
 
             local lang = get_lang(parser, { row - 1, col, row - 1, col })
             local ts_tag = filetype_to_type[lang] or filetype_to_type[vim.bo.filetype]
             if not ts_tag or vim.tbl_isempty(ts_tag) then
-                return
+                return vim.api.nvim_win_set_cursor(0, { row, col + 1 })
             end
 
             try_insert_close_tag(args.buf, ts_tag)
