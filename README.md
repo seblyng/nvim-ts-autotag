@@ -27,9 +27,3 @@ Before        Input         After
 <div           >              <div></div>
 ------------------------------------
 ```
-
-## Setup
-
-```lua
-require("nvim-ts-autotag").setup()
-```
