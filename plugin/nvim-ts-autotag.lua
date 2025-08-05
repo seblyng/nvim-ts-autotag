@@ -127,6 +127,11 @@ vim.api.nvim_create_autocmd("FileType", {
             local row, col = unpack(vim.api.nvim_win_get_cursor(0))
             vim.api.nvim_buf_set_text(args.buf, row - 1, col, row - 1, col, { ">" })
 
+            -- Self closing tags should not be closed
+            if vim.api.nvim_get_current_line():sub(col, col) == "/" then
+                return vim.api.nvim_win_set_cursor(0, { row, col + 1 })
+            end
+
             local ok, parser = pcall(vim.treesitter.get_parser)
             if not ok or not parser then
                 return vim.api.nvim_win_set_cursor(0, { row, col + 1 })
