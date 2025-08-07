@@ -1,4 +1,5 @@
 ---@class NvimTsAutotagTag
+---@field start_tag string[]
 ---@field start_name_tag string[]
 ---@field end_tag string[]
 ---@field end_name_tag string[]
@@ -9,6 +10,7 @@ local tbl_skip_tag =
 
 ---@type NvimTsAutotagTag
 local HTML_TAG = {
+    start_tag = { "start_tag" },
     start_name_tag = { "tag_name", "Name" },
     end_tag = { "end_tag", "ETag" },
     end_name_tag = { "tag_name", "Name" },
@@ -17,6 +19,7 @@ local HTML_TAG = {
 
 ---@type NvimTsAutotagTag
 local JSX_TAG = {
+    start_tag = { "jsx_opening_element", "start_tag" },
     start_name_tag = { "identifier", "nested_identifier", "tag_name", "member_expression", "jsx_identifier" },
     end_tag = { "jsx_closing_element", "end_tag" },
     end_name_tag = { "identifier", "tag_name" },
@@ -25,6 +28,7 @@ local JSX_TAG = {
 
 ---@type NvimTsAutotagTag
 local HBS_TAG = {
+    start_tag = { "element_node_start" },
     start_name_tag = { "tag_name" },
     end_tag = { "element_node_end" },
     end_name_tag = { "tag_name" },
@@ -33,6 +37,7 @@ local HBS_TAG = {
 
 ---@type NvimTsAutotagTag
 local RSTML_TAG = {
+    start_tag = { "open_tag" },
     start_name_tag = { "node_identifier" },
     end_tag = { "close_tag" },
     end_name_tag = { "node_identifier" },
@@ -95,24 +100,27 @@ end
 ---@param ts_tag NvimTsAutotagTag
 local function try_insert_close_tag(bufnr, ts_tag)
     local curr_node = vim.treesitter.get_node({ ignore_injections = false })
-    local start_tag = find_child_match(curr_node, ts_tag.start_name_tag)
-    if not start_tag then
+    -- Make sure we have a starting tag. Checking for the name of a start tag immediately
+    -- might match with nodes that are not actually a start tag.
+    local start_tag = find_parent_match(curr_node, ts_tag.start_tag, 1)
+    local start_name_tag = find_child_match(start_tag, ts_tag.start_name_tag)
+    if not start_name_tag then
         return
     end
 
-    local start_tag_name = vim.treesitter.get_node_text(start_tag, bufnr)
+    local start_tag_name = vim.treesitter.get_node_text(start_name_tag, bufnr)
     if vim.tbl_contains(tbl_skip_tag, start_tag_name) then
         return
     end
 
-    local element_node = find_parent_match(start_tag, ts_tag.element_tag, 2)
+    local element_node = find_parent_match(start_name_tag, ts_tag.element_tag, 2)
     local close_node = find_child_match(element_node, ts_tag.end_tag)
-    local close_tag = find_child_match(close_node, ts_tag.end_name_tag)
+    local close_name_tag = find_child_match(close_node, ts_tag.end_name_tag)
 
     -- If we have a closing tag that is the same as the start tag, we should not autofill it
-    if close_tag ~= nil then
-        local close_tag_name = vim.treesitter.get_node_text(close_tag, bufnr)
-        if start_tag:range() == close_tag:range() and start_tag_name == close_tag_name then
+    if close_name_tag ~= nil then
+        local close_tag_name = vim.treesitter.get_node_text(close_name_tag, bufnr)
+        if start_name_tag:range() == close_name_tag:range() and start_tag_name == close_tag_name then
             return
         end
     end
