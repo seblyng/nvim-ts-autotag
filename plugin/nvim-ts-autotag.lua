@@ -128,30 +128,34 @@ local function try_insert_close_tag(bufnr, ts_tag)
     vim.api.nvim_put({ string.format("</%s>", start_tag_name) }, "", true, false)
 end
 
-vim.api.nvim_create_autocmd("FileType", {
-    pattern = vim.tbl_keys(filetype_to_type),
-    callback = function(args)
-        vim.keymap.set("i", ">", function()
-            local row, col = unpack(vim.api.nvim_win_get_cursor(0))
-            vim.api.nvim_buf_set_text(args.buf, row - 1, col, row - 1, col, { ">" })
+vim.on_key(function(_, typed)
+    if typed ~= ">" then
+        return
+    end
 
-            -- Self closing tags should not be closed
-            if vim.api.nvim_get_current_line():sub(col, col) == "/" then
-                return vim.api.nvim_win_set_cursor(0, { row, col + 1 })
-            end
+    if not vim.list_contains(filetype_to_type, vim.bo.filetype) then
+        return
+    end
 
-            local ok, parser = pcall(vim.treesitter.get_parser)
-            if not ok or not parser then
-                return vim.api.nvim_win_set_cursor(0, { row, col + 1 })
-            end
-            parser:parse(true)
+    local buffer = vim.api.nvim_get_current_buf()
+    local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+    vim.api.nvim_buf_set_text(buffer, row - 1, col, row - 1, col, { ">" })
 
-            local ts_tag = filetype_to_type[vim.bo.filetype]
-            try_insert_close_tag(args.buf, ts_tag)
+    -- Self closing tags should not be closed
+    if vim.api.nvim_get_current_line():sub(col, col) == "/" then
+        return vim.api.nvim_win_set_cursor(0, { row, col + 1 })
+    end
 
-            vim.api.nvim_win_set_cursor(0, { row, col + 1 })
-        end, {
-            buffer = 0,
-        })
-    end,
-})
+    local ok, parser = pcall(vim.treesitter.get_parser)
+    if not ok or not parser then
+        return vim.api.nvim_win_set_cursor(0, { row, col + 1 })
+    end
+    parser:parse(true)
+
+    local ts_tag = filetype_to_type[vim.bo.filetype]
+    try_insert_close_tag(buffer, ts_tag)
+
+    vim.api.nvim_win_set_cursor(0, { row, col + 1 })
+
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<BS>", true, false, true), "n", false)
+end)
