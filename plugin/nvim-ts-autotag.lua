@@ -133,7 +133,7 @@ vim.on_key(function(_, typed)
         return
     end
 
-    if not vim.list_contains(filetype_to_type, vim.bo.filetype) then
+    if not vim.list_contains(vim.tbl_keys(filetype_to_type), vim.bo.filetype) then
         return
     end
 
